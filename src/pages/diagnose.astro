@@ -1,0 +1,236 @@
+---
+// src/pages/diagnose.astro
+---
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Tongue Diagnosis</title>
+    <style>
+      body { font-family: system-ui, -apple-system, sans-serif; max-width: 700px; margin: 2rem auto; padding: 0 1rem; background: #f9fafb; color: #333; }
+      .container { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+      .hidden { display: none !important; }
+      input[type="text"] { width: 100%; padding: 0.75rem; margin: 0.5rem 0 1rem 0; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; box-sizing: border-box; }
+      button { background: #27ae60; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 4px; cursor: pointer; font-size: 1rem; margin-right: 0.5rem; margin-bottom: 0.5rem; }
+      button:hover { background: #219653; }
+      .btn-secondary { background: #34495e; }
+      .btn-secondary:hover { background: #2c3e50; }
+      video, canvas, .preview { max-width: 100%; max-height: 350px; border-radius: 4px; display: block; margin: 1rem 0; }
+      .result-box { background: #f1f8f5; border-left: 4px solid #27ae60; padding: 1rem; margin-top: 1.5rem; border-radius: 0 4px 4px 0; line-height: 1.6; }
+      .loader { font-style: italic; color: #666; margin-top: 1rem; }
+      .tab-section { margin-bottom: 1.5rem; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h2>TCM Tongue Diagnosis Portal</h2>
+      <p>Capture a live photo using your camera or upload an image file.</p>
+
+      <div id="capture-section">
+        <!-- Input Mode Selection -->
+        <div class="tab-section">
+          <button type="button" id="use-camera-btn" class="btn-secondary">Use Live Camera</button>
+          <button type="button" id="use-upload-btn" class="btn-secondary">Upload File</button>
+        </div>
+
+        <!-- Live Camera Stream Container -->
+        <div id="camera-container" class="hidden">
+          <video id="video" autoplay playsinline></video>
+          <button type="button" id="snap-btn" style="background: #e67e22;">Snap Photo</button>
+          <canvas id="canvas" class="hidden"></canvas>
+        </div>
+
+        <!-- File Upload Container -->
+        <div id="upload-container" class="hidden">
+          <input type="file" id="image-input" accept="image/*" />
+        </div>
+
+        <!-- Preview & Symptoms Form -->
+        <div id="preview-container" class="hidden">
+          <img id="image-preview" class="preview" alt="Tongue Preview" />
+          <br />
+          <div>
+            <label for="symptoms-input"><strong>Symptoms / Notes:</strong></label>
+            <input type="text" id="symptoms-input" value="无明显不适 (Normal / No specific complaints)" />
+          </div>
+          <br />
+          <button id="submit-btn">Analyze Tongue Image</button>
+          <button type="button" id="retake-btn" style="background: #c0392b;">Retake / Choose Another</button>
+        </div>
+
+        <div id="loading" class="loader hidden">Analyzing image with Qwen2.5-VL... Please wait (approx 5-10s)...</div>
+      </div>
+
+      <!-- Diagnostic Results Display -->
+      <div id="result-section" class="hidden">
+        <h3>Structured Diagnostic Output</h3>
+        <div class="result-box">
+          <p><strong>诊断 (Zhenduan):</strong> <span id="res-zhenduan"></span></p>
+          <p><strong>辨证 (Bianzheng):</strong> <span id="res-bianzheng"></span></p>
+          <p><strong>处方 (Chufang):</strong> <span id="res-chufang"></span></p>
+          <p><strong>辩证理由 (Liyou):</strong> <span id="res-liyou"></span></p>
+        </div>
+        <button onclick="window.location.reload()" style="margin-top: 1rem; background: #7f8c8d;">Analyze Another</button>
+      </div>
+    </div>
+
+    <script>
+      // PIN Auth Guard Check
+      if (sessionStorage.getItem('tcm_auth') !== 'true') {
+        window.location.href = '/';
+      }
+
+      const useCameraBtn = document.getElementById('use-camera-btn') as HTMLButtonElement;
+      const useUploadBtn = document.getElementById('use-upload-btn') as HTMLButtonElement;
+      const cameraContainer = document.getElementById('camera-container') as HTMLElement;
+      const uploadContainer = document.getElementById('upload-container') as HTMLElement;
+      const previewContainer = document.getElementById('preview-container') as HTMLElement;
+      
+      const video = document.getElementById('video') as HTMLVideoElement;
+      const canvas = document.getElementById('canvas') as HTMLCanvasElement;
+      const snapBtn = document.getElementById('snap-btn') as HTMLButtonElement;
+      const imageInput = document.getElementById('image-input') as HTMLInputElement;
+      const imagePreview = document.getElementById('image-preview') as HTMLImageElement;
+      
+      const symptomsInput = document.getElementById('symptoms-input') as HTMLInputElement;
+      const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
+      const retakeBtn = document.getElementById('retake-btn') as HTMLButtonElement;
+      const loadingDiv = document.getElementById('loading') as HTMLElement;
+      const captureSection = document.getElementById('capture-section') as HTMLElement;
+      const resultSection = document.getElementById('result-section') as HTMLElement;
+
+      let base64Image = '';
+      let mediaStream: MediaStream | null = null;
+
+      // Switch to Camera Mode
+      useCameraBtn.addEventListener('click', async () => {
+        uploadContainer.classList.add('hidden');
+        cameraContainer.classList.remove('hidden');
+        useCameraBtn.classList.add('hidden');
+        useUploadBtn.classList.add('hidden');
+
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+          video.srcObject = mediaStream;
+        } catch (err) {
+          alert('Unable to access camera. Please use file upload instead.');
+          console.error(err);
+        }
+      });
+
+      // Switch to Upload Mode
+      useUploadBtn.addEventListener('click', () => {
+        cameraContainer.classList.add('hidden');
+        uploadContainer.classList.remove('hidden');
+        useCameraBtn.classList.add('hidden');
+        useUploadBtn.classList.add('hidden');
+      });
+
+      // Snap photo from stream
+      snapBtn.addEventListener('click', () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          base64Image = canvas.toDataURL('image/jpeg');
+          imagePreview.src = base64Image;
+
+          if (mediaStream) {
+            mediaStream.getTracks().forEach(track => track.stop());
+          }
+
+          cameraContainer.classList.add('hidden');
+          previewContainer.classList.remove('hidden');
+        }
+      });
+
+      // Handle file input
+      imageInput.addEventListener('change', (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (uploadEvent) => {
+            base64Image = uploadEvent.target?.result as string;
+            imagePreview.src = base64Image;
+            uploadContainer.classList.add('hidden');
+            previewContainer.classList.remove('hidden');
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+
+      // Reset selection
+      retakeBtn.addEventListener('click', () => {
+        window.location.reload();
+      });
+
+      // Direct client-to-RunPod API Call
+      submitBtn.addEventListener('click', async () => {
+        if (!base64Image) return;
+
+        previewContainer.classList.add('hidden');
+        loadingDiv.classList.remove('hidden');
+
+        const userSymptoms = symptomsInput.value || '无明显不适 (Normal)';
+
+        try {
+          const response = await fetch('https://ja42vbtdp3v9li-8000.proxy.runpod.net/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'Qwen/Qwen2.5-VL-32B-Instruct-AWQ',
+              messages: [
+                {
+                  role: 'system',
+                  content: `You are an expert Traditional Chinese Medicine (TCM) diagnostician. Analyze the provided tongue image and patient symptoms ("${userSymptoms}"). You MUST output your response strictly as a valid JSON object ONLY, with no markdown formatting or extra text outside the JSON: {"structured_result": {"zhenduan": "string", "bianzheng": "string", "chufang": "string", "zhenduan_liyou": "string"}}`
+                },
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: `Patient symptoms: ${userSymptoms}. Perform TCM tongue diagnosis.` },
+                    { type: 'image_url', image_url: { url: base64Image } }
+                  ]
+                }
+              ],
+              max_tokens: 1024,
+              temperature: 0.1
+            })
+          });
+
+          const data = await response.json();
+          if (response.ok && data.choices?.[0]?.message?.content) {
+            const rawContent = data.choices[0].message.content;
+            
+            // Clean markdown block wrappers if present
+            let cleaned = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
+            const firstBrace = cleaned.indexOf('{');
+            const lastBrace = cleaned.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1) {
+              cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+            }
+
+            const parsedData = JSON.parse(cleaned);
+            const result = parsedData.structured_result || parsedData;
+
+            document.getElementById('res-zhenduan')!.textContent = result.zhenduan || 'N/A';
+            document.getElementById('res-bianzheng')!.textContent = result.bianzheng || 'N/A';
+            document.getElementById('res-chufang')!.textContent = result.chufang || 'N/A';
+            document.getElementById('res-liyou')!.textContent = result.zhenduan_liyou || rawContent;
+
+            captureSection.classList.add('hidden');
+            resultSection.classList.remove('hidden');
+          } else {
+            alert('RunPod API Error: ' + (data.error?.message || 'Failed to process image'));
+            previewContainer.classList.remove('hidden');
+          }
+        } catch (err: any) {
+          alert('Network/API Error: ' + (err.message || 'Failed to communicate with RunPod server'));
+          previewContainer.classList.remove('hidden');
+        } finally {
+          loadingDiv.classList.add('hidden');
+        }
+      });
+    </script>
+  </body>
+</html>

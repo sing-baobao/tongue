@@ -1,0 +1,44 @@
+---
+// src/pages/index.astro
+---
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>TCM Diagnosis - Access</title>
+    <style>
+      body { font-family: sans-serif; display: grid; place-content: center; height: 100vh; background: #f4f6f8; margin: 0; }
+      .card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 300px; text-align: center; }
+      input { width: 100%; padding: 0.75rem; margin: 1rem 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; text-align: center; letter-spacing: 0.2rem; }
+      button { background: #2c3e50; color: white; border: none; padding: 0.75rem 1rem; width: 100%; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+      button:hover { background: #34495e; }
+      .error { color: #e74c3c; font-size: 0.85rem; margin-top: 0.5rem; display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h2>Enter Access PIN</h2>
+      <form id="pin-form">
+        <input type="password" id="pin-input" maxlength="4" placeholder="••••" required autofocus />
+        <button type="submit">Access System</button>
+        <div id="error-msg" class="error">Incorrect PIN. Please try again.</div>
+      </form>
+    </div>
+
+    <script>
+      const form = document.getElementById('pin-form') as HTMLFormElement;
+      const input = document.getElementById('pin-input') as HTMLInputElement;
+      const errorMsg = document.getElementById('error-msg') as HTMLElement;
+
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (input.value === '1025') {
+          sessionStorage.setItem('tcm_auth', 'true');
+          window.location.href = '/diagnose';
+        } else {
+          errorMsg.style.display = 'block';
+          input.value = '';
+        }
+      });
+    </script>
+  </body>
+</html>
